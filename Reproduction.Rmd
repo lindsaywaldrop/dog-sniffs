@@ -1,0 +1,756 @@
+---
+title: "Figures and analysis to accompany 'Canine Sniffing Biomechanic Responses to Varied Physical Properties'"
+author: 
+- Lydia Burnett^1^, Lindsay Waldrop^2^, Nick Hebdon^2^, Pete Stevens^3^,  
+- Monica Moljo^1^, Lauryn DeGreeff^1^
+date: "`r Sys.Date()`"
+output: html_notebook
+---
+```{r setup}
+knitr::opts_chunk$set(echo=FALSE)
+```
+
+# Instructions for running code
+
+This code notebook contains all code needed to reproduce the figures and statistics of the manuscript. It was run with R version 4.4.0 (2024-04-24) and RStudio v 2024.04.1+748 (2024.04.1+748). 
+
+To rerun the code in this file: 
+
+ 1. Clone the Github project at https://github.com/lindsaywaldrop/dog-sniffs
+ 2. Open RStudio and the RProject file dog-sniffs.Rproj. 
+ 3. Open the Reproduction.Rmd and click Run and Run all. 
+
+Most code is not echoed in the HTML notebook file, but it is present in the RMD file. 
+
+Note: the terminology in the code often refers to sport dogs as "civilian" and law-enforcement dogs as "operational". 
+
+# Reproduction of full analysis
+
+Coming Soon!
+
+# Reproduction of data-driven figures in manuscript
+
+This RMD will call a csv file in the results directory produced from a previous run of the full analysis code from raw sensor data with the date: 
+
+```{r analysis-date, echo=TRUE}
+analysis_date <- "2023-08-30"
+```
+
+If you would like to rerun the full analysis, please change the above date to the date which you ran the full analysis code. 
+
+Loads required libraries: 
+
+```{r libraries, echo=TRUE}
+library(knitr)
+library(ggrepel)
+library(here)
+library(ggplot2)
+library(viridis)
+library(patchwork)
+library(forcats)
+library(dplyr)
+library(signal)
+library(pracma)
+```
+
+
+Loading results and performing initial calculations:
+
+```{r loading-results, message=FALSE, warning=FALSE}
+# Loading custom functions (located in src/ folder)
+source("./src/data_handling_fxns.R")
+source("./src/ethogram_fxns.R")
+source("./src/kinematic_fxns.R")
+
+frame_rate <- 29.97 # Setting frame rate of videos
+
+# Loading the results of previous analysis
+sniff_results <- load_sniff_results(analysis_date)
+
+# Loading snout lengths of sport dogs
+snout_lengths <- calculate_snout_lengths(sniff_results)
+
+# Loading dog weights
+dog_sizes <- read.csv("./data/kinematics/dog_sizes.csv")
+
+# Assigning snout lengths, weights, and size classifications to main data set
+sniff_results$snout_length <- rep(NA, nrow(sniff_results))
+sniff_results$size <- rep(NA, nrow(sniff_results))
+sniff_results$weight <- rep(NA, nrow(sniff_results))
+for(j in 1:nrow(sniff_results)){
+  sniff_results$snout_length[j] <- snout_lengths$head_mean[snout_lengths$dog == 
+                                                             sniff_results$dog[j]]
+  sniff_results$size[j] <- dog_sizes$size[dog_sizes$dog == 
+                                            sniff_results$dog[j]]
+  sniff_results$weight[j] <- dog_sizes$weight[dog_sizes$dog == 
+                                            sniff_results$dog[j]]
+}
+sniff_results$weight <- sniff_results$weight/2.205 # Converting lbs to kg
+
+# Adding information on the training status for dogs (sport dogs were trained in trial 3, trials 4 and 5 were law-enforcement dogs)
+sniff_results$trained <- ifelse(sniff_results$trial == 3 | sniff_results$trial == 4, T, F)
+
+# Normalizing volumes and volume flow rates with body weight
+sniff_results$norm_volume <- sniff_results$sniff_volume/sniff_results$weight
+sniff_results$norm_total_volume <- sniff_results$total_volume/sniff_results$weight
+
+# Removing dog 102
+sniff_results <- sniff_results[sniff_results$dog != 102, ]
+
+# Reordering results 
+sniff_this <- sniff_results %>% 
+  mutate(dog = fct_reorder(dog, -as.numeric(as.character(snout_length))))
+# Factoring size data
+sniff_this$size <- factor(sniff_this$size, ordered = TRUE, levels = c("small", "large", "operational"))
+
+# Summarize results by dog number, size, weight, snout length, and trial
+sniff_summaries <- sniff_this %>%
+  group_by(dog, size, snout_length, trial, weight) %>%
+  summarise(sniff_vfr = mean(sniff_vfr, na.rm = T),                   # Mean volume flow rate of sniffs in a burst
+            sniff_volume = mean(sniff_volume, na.rm = T),             # Mean sniff volume
+            norm_volume = mean(norm_volume, na.rm = T),               # Mean sniff volume normalized by body weight
+            sniff_freq = mean(sniff_freq, na.rm = T),                 # Mean sniff frequency in Hz
+            sniff_duration = mean(sniff_duration, na.rm = T),         # Mean sniff duration in seconds
+            sniff_counts = mean(sniff_counts, na.rm = T),             # Total count of sniffs in a burst
+            total_volume = mean(total_volume, na.rm = T),             # Mean total sampling volume of sniffs in a burst
+            norm_total_volume = mean(norm_total_volume, na.rm = T))   # Mean total sampling volume of sniffs in a burst normalized by body weight
+
+# Summarize results by dog number, size, weight, snout length, and trial
+sniff_summaries_chemical <- sniff_this %>%
+  group_by(dog, size, snout_length, trial, weight, chemical) %>%
+  summarise(sniff_vfr = mean(sniff_vfr, na.rm = T),                   # Mean volume flow rate of sniffs in a burst
+            sniff_volume = mean(sniff_volume, na.rm = T),             # Mean sniff volume
+            norm_volume = mean(norm_volume, na.rm = T),               # Mean sniff volume normalized by body weight
+            sniff_freq = mean(sniff_freq, na.rm = T),                 # Mean sniff frequency in Hz
+            sniff_duration = mean(sniff_duration, na.rm = T),         # Mean sniff duration in seconds
+            sniff_counts = mean(sniff_counts, na.rm = T),             # Total count of sniffs in a burst
+            total_volume = mean(total_volume, na.rm = T),             # Mean total sampling volume of sniffs in a burst
+            norm_total_volume = mean(norm_total_volume, na.rm = T))   # Mean total sampling volume of sniffs in a burst normalized by body weight
+
+# Assigning target column to distinguish between target (2E1H or ammonia) or non-target odors
+sniff_summaries_chemical$target <- ifelse(sniff_summaries_chemical$chemical == "2E1H", "yes",
+                                          ifelse(sniff_summaries_chemical$chemical == "Ammonia", "yes", "no"))
+
+# Summarize results by dog number, size, snout length and weight, this summarizes data across trials (for only events that result in positive volumes)
+sniff_summaries_alltrials <- sniff_this[sniff_this$sniff_volume > 0, ] %>%
+  group_by(dog, size, snout_length, weight) %>%
+  summarise(sniff_vfr = mean(sniff_vfr, na.rm = T),                   # Mean volume flow rate of sniffs in a burst
+            sniff_volume = mean(sniff_volume, na.rm = T),             # Mean sniff volume
+            norm_volume = mean(norm_volume, na.rm = T),               # Mean sniff volume normalized by body weight
+            sniff_freq = mean(sniff_freq, na.rm = T),                 # Mean sniff frequency in Hz
+            sniff_duration = mean(sniff_duration, na.rm = T),         # Mean sniff duration in seconds
+            sniff_counts = mean(sniff_counts, na.rm = T),             # Total count of sniffs in a burst
+            total_volume = mean(total_volume, na.rm = T),             # Mean total sampling volume of sniffs in a burst
+            norm_total_volume = mean(norm_total_volume, na.rm = T))   # Mean total sampling volume of sniffs in a burst normalized by body weight
+
+# Remove extra NA line at the end of the data set:
+sniff_summaries_alltrials <- sniff_summaries_alltrials[!is.na(sniff_summaries_alltrials$dog),]
+
+# Assigning operational status to each dog (operational = law-enforcement, civilian = sport)
+sniff_summaries_alltrials$op <- ifelse(sniff_summaries_alltrials$size == "operational",
+                                       "operational", "civilian")
+
+
+```
+
+
+Setting color palettes and labels for figures:
+
+```{r fig-preferences, include=FALSE}
+trial_cols <- c("deepskyblue4","cadetblue1", "lightsalmon",  "gold")
+sniff_this <- sniff_this[order(sniff_this$weight),]
+sniff_this$dog <- factor(sniff_this$dog, ordered = T, levels = unique(sniff_this$dog))
+chem_labels <- c("2E1H\n(target)", "Ammonia\n(target)", "Blank", 
+                              "1-BO\n(non-target)", 
+                              "MB\n(non-target)")
+```
+
+## Figure 2
+
+Code loads in raw sensor data (in the data/flowsensor directory), filters, and clips to a snapshot to produce figure 2. 
+
+```{r sniff-trace-calcs}
+## Loading data for Figure 2
+
+sample_rate <- 100  # sampling rate in samples per second
+N <- 4              # Butterworth filter polynomial fit coefficient
+filsig <- 0.15      # Butterworth filter signal frequency for low pass 
+sniff_parameters <- load_sniff_parameters() # Loading the parameter data set
+
+# Loading data for trial 4, dog 100, run 2, bromo-octane
+dat_a_full <- load_data(trial = 4, 
+                     dog = 100,
+                     run = 2,
+                     chemical = "bromooctane",
+                     sample_rate, 
+                     min_stop = sniff_parameters$cal[722], 
+                     F)
+
+# Filtering data with forward-reverse low-pass Butterworth filter
+dat_a_full <- filter_data(dat_a_full, F, F, N, filsig)
+
+# Restricting data set to snapshot (Fig 2B)
+dat_a_snap <- dat_a_full[dat_a_full$adj_time >= sniff_parameters$start_time[722] & 
+                           dat_a_full$adj_time <= sniff_parameters$end_time[722],]
+
+# Loading data for trial 1, dog 11, run 1, bromo-octane
+dat_c_sniff <- load_data(trial = 1, 
+                     dog = 11,
+                     run = 1,
+                     chemical = "bromooctane",
+                     sample_rate, 
+                     min_stop = sniff_parameters$cal[29], 
+                     F)
+# Filtering data with forward-reverse low-pass Butterworth filter
+dat_c_sniff <- filter_data(dat_c_sniff, T, F, N, filsig)
+
+# Restricting data set to snapshot (Fig 2C)
+dat_c_sniff <- dat_c_sniff[dat_c_sniff$adj_time >= 73.2 & 
+                        dat_c_sniff$adj_time <= 74,]
+
+# Loading data for trial 4, dog 100, run 1, blank
+dat_d_snort <- load_data(trial = 4, 
+                     dog = 100,
+                     run = 1,
+                     chemical = "Blank",
+                     sample_rate, 
+                     min_stop = sniff_parameters$cal[719], 
+                     F)
+
+# Filtering data with forward-reverse low-pass Butterworth filter
+dat_d_snort <- filter_data(dat_d_snort, F, F, N, filsig)
+
+# Restricting data set to snapspot (Fig 2D)
+dat_d_snort <- dat_d_snort[dat_d_snort$adj_time >= 163.2 & 
+                        dat_d_snort$adj_time <= 164,]
+```
+
+Figure 2 reproduction:
+
+```{r figure-2, echo=FALSE, warning=FALSE, fig.cap="Example of sniffing data as generated by the sensors. A: complete trace of Trial 4, Dog 100, Run 2; sniff cycle of 1-BO, gray box indicates focus of part B. B: shows a typical sniff cycle pattern within A. C: Trial 1, Dog 11, Run 1, sniff of the blank tube, showing isolated individual sniffs. D: Trial 4, Dog 100, Run 1, sniff of the blank tube showing a snort. Black lines are unfiltered data and red lines are filtered data."}
+# Figure 2
+
+box <- data.frame("x" = c(62, 59.1, 59.1, 62), "y" = c(-10, -10, 18, 18))
+
+p1 <- ggplot(dat_a_full[dat_a_full$adj_time > 25,], aes(adj_time, sample)) + 
+  geom_line() +
+  geom_polygon(data = box, aes(x,y), col = "gray40", fill = NA, type = 2) +
+  xlab("Time (s)") + ylab("Volume flow (std. L/min)") + 
+  theme_bw()
+
+p2 <- ggplot(dat_a_snap, 
+       aes(adj_time, sample)) + 
+  geom_line()  +
+  geom_line(aes(adj_time, sample_filtered), col = "red") + 
+  xlab("Time (s)") + ylab("Volume flow (std. L/min)") + 
+  theme_bw()
+
+p3 <- ggplot(dat_c_sniff, 
+       aes(adj_time, sample)) + 
+  geom_line()  +
+  geom_line(aes(adj_time, sample_filtered), col = "red") + 
+  xlab("Time (s)") + ylab("Volume flow (std. L/min)") + 
+  theme_bw()
+
+p4 <- ggplot(dat_d_snort, 
+       aes(adj_time, sample)) + 
+  geom_line()  +
+  geom_line(aes(adj_time, sample_filtered), col = "red") + 
+  xlab("Time (s)") + ylab("Volume flow (std. L/min)") + 
+  theme_bw()
+
+design <- "AABB
+           CCDD"
+
+p1 + p2 + p3 + p4 + plot_layout(design = design) + plot_annotation(tag_levels = "A")
+  
+```
+
+
+## Figure 3
+
+```{r sniff-volume, fig.height=7.5, echo=FALSE, warning=FALSE, message=FALSE, fig.cap="A. Individual sniff volumes of individual canines, arranged from lightest to heaviest, left to right, and colored by body size (civilian canines) and operational status. B. Total sampling volumes for each trial by target chemical colored by trial and operational status. C. Volume flow rate for each trial by target chemical and colored by trial and operational status. On each plot, some outliers are not shown in order to show detail. Significance levels were designated * if p < 0.05, ** if p < 0.01, and *** if p < 0.001."}
+# Figure 3 
+trial_labels <- c("Sport Trial 1", "Sport Trial 2", "Sport Trial 3", "Law enforcement")
+p1 <- ggplot(sniff_this, aes(x =  dog, y = sniff_volume, fill = size)) + 
+  geom_point(pch = 21, alpha = 0.3, position = position_jitterdodge(jitter.width = 0.2)) + 
+  geom_boxplot(na.rm = T, outlier.shape = NA, alpha = 0.6) +
+  xlab("Participant number") + 
+  ylab("Sniff volume (mL)")+
+  ylim(0, 1000)+
+  scale_fill_viridis(discrete = T, name = "", 
+                    labels = c("Small (sport)", "Large (sport)", "Law\nenforcement"))+
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+p3 <- ggplot(sniff_summaries_chemical, aes(x = chemical, y = total_volume, fill = trial)) + 
+  geom_point(pch = 21, alpha = 0.3, position = position_jitterdodge(jitter.width = 0.2)) + 
+  geom_boxplot(na.rm = T, outlier.shape = NA, alpha = 0.6) +
+  ylab("Mean total sample\nvolume (mL)")+
+  xlab(" ") +
+  #ggtitle("Sniff volume by chemical")+
+  scale_fill_manual(values = trial_cols, 
+                    labels = trial_labels, 
+                    name = " ") +
+  scale_x_discrete(labels = chem_labels) +
+  ylim(0, 8300) +
+  #2e1h
+  geom_segment(aes(x = 0.85, y = 7250, xend = 1.3, yend = 7250))+
+  annotate("text", x = 1.1, y = 7500, label = "***")+
+  #ammonia
+  geom_segment(aes(x = 1.85, y = 7750, xend = 2.3, yend = 7750))+
+  annotate("text", x = 2.1, y = 8000, label = "***")+
+  #blank
+  geom_segment(aes(x = 2.85, y = 7750, xend = 3.3, yend = 7750))+
+  annotate("text", x = 3.1, y = 8000, label = "**")+
+  #bromooctane
+  geom_segment(aes(x = 3.85, y = 4000, xend = 4.3, yend = 4000))+
+  annotate("text", x = 4.1, y = 4250, label = "***")+
+  #methylbenzoate
+  geom_segment(aes(x = 4.85, y = 6250, xend = 5.3, yend = 6250))+
+  annotate("text", x = 5.1, y = 6500, label= "***")+
+  
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+p4 <- ggplot(sniff_results, aes(x = chemical, y = sniff_vfr, fill = trial)) + 
+ geom_point(pch = 21, alpha = 0.3, position = position_jitterdodge(jitter.width = 0.2)) + 
+  geom_boxplot(na.rm = T, outlier.shape = NA, alpha = 0.6) +
+  ylab("Volume flow rate\n(mL/s)")+
+  xlab(" ")+
+  ylim(0, 15000)+
+  scale_fill_manual(values = trial_cols, 
+                    labels = trial_labels, 
+                    name = " ") +
+  scale_x_discrete(labels = chem_labels) +
+  #ggtitle("Flow rate by chemical")+
+  #2e1h
+  geom_segment(aes(x = 0.85, y = 12000, xend = 1.3, yend = 12000))+
+  annotate("text", x = 1.1, y = 12500, label = "***")+
+  #ammonia
+  geom_segment(aes(x = 1.85, y = 12000, xend = 2.3, yend = 12000))+
+  annotate("text", x = 2.1, y = 12500, label = "***")+
+  #blank
+  geom_segment(aes(x = 2.85, y = 13500, xend = 3.3, yend = 13500))+
+  annotate("text", x = 3.1, y = 14000, label = "**")+
+  #bromooctane
+  geom_segment(aes(x = 3.85, y = 13500, xend = 4.3, yend = 13500))+
+  annotate("text", x = 4.1, y = 14000, label = "***")+
+  #methylbenzoate
+  geom_segment(aes(x = 4.85, y = 10000, xend = 5.3, yend = 10000))+
+  annotate("text", x = 5.1, y = 10500, label= "***")+
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+p1  / (p3 /p4 + plot_layout(guides = "collect") )  + plot_annotation(tag_levels = "A") +
+  plot_layout(heights = c(1,3))
+```
+
+Accompanying statistical comparisons: 
+
+```{r sniff-volume-fig-stats}
+# Test Fig 3B panel: total sample volumes summarized by chemical
+print("Test Fig 3B panel: total sample volumes summarized by chemical")
+shapiro.test(sniff_summaries_chemical$total_volume) # data are non-normal
+
+# 2E1H (civilian vs operational) SIG
+snifftotvol_2E1H_model <- wilcox.test(
+  sniff_summaries_chemical$total_volume[
+    sniff_summaries_chemical$size == "operational" & 
+      sniff_summaries_chemical$chemical == "2E1H"],
+  sniff_summaries_chemical$total_volume[
+    sniff_summaries_chemical$size != "operational" & 
+      sniff_summaries_chemical$chemical == "2E1H"]) 
+snifftotvol_2E1H_model$p.value <- p.adjust(snifftotvol_2E1H_model$p.value, 
+                                        method = "bonferroni", n = 5)
+print("Total volume: 2E1H sport vs law-enforcement")
+print(snifftotvol_2E1H_model)
+
+# Ammonia (civilian vs operational) SIG
+snifftotvol_Ammonia_model <- wilcox.test(
+  sniff_summaries_chemical$total_volume[
+    sniff_summaries_chemical$size == "operational" & 
+      sniff_summaries_chemical$chemical == "Ammonia"],                        
+  sniff_summaries_chemical$total_volume[
+    sniff_summaries_chemical$size != "operational" & 
+      sniff_summaries_chemical$chemical == "Ammonia"])
+snifftotvol_Ammonia_model$p.value <- p.adjust(snifftotvol_Ammonia_model$p.value, 
+                                        method = "bonferroni", n = 5)
+print("Total volume: Ammonia sport vs law-enforcement")
+print(snifftotvol_Ammonia_model)
+
+# Blank (civilian vs operational) SIG
+snifftotvol_Blank_model <- wilcox.test(
+  sniff_summaries_chemical$total_volume[
+    sniff_summaries_chemical$size == "operational" &
+      sniff_summaries_chemical$chemical == "Blank"],                        
+  sniff_summaries_chemical$total_volume[
+    sniff_summaries_chemical$size != "operational" & 
+      sniff_summaries_chemical$chemical == "Blank"])
+snifftotvol_Blank_model$p.value <- p.adjust(snifftotvol_Blank_model$p.value, 
+                                        method = "bonferroni", n = 5)
+print("Total volume: Blank sport vs law-enforcement")
+print(snifftotvol_Blank_model)
+
+# Bromooctane (civilian vs operational) SIG
+snifftotvol_Bromo_model <- wilcox.test(
+  sniff_summaries_chemical$total_volume[
+    sniff_summaries_chemical$size == "operational" & 
+      sniff_summaries_chemical$chemical == "bromooctane"],                        
+  sniff_summaries_chemical$total_volume[
+    sniff_summaries_chemical$size != "operational" & 
+      sniff_summaries_chemical$chemical == "bromooctane"])
+snifftotvol_Bromo_model$p.value <- p.adjust(snifftotvol_Bromo_model$p.value, 
+                                        method = "bonferroni", n = 5)
+print("Total volume: 1-BO sport vs law-enforcement")
+print(snifftotvol_Bromo_model)
+
+
+# Methyl benzoate (civilian vs operational) SIGNIFICANT
+snifftotvol_Methyl_model <- wilcox.test(
+  sniff_summaries_chemical$total_volume[
+    sniff_summaries_chemical$size == "operational" &
+    sniff_summaries_chemical$chemical == "methylbenzoate"],
+  sniff_summaries_chemical$total_volume[
+    sniff_summaries_chemical$size != "operational" & 
+    sniff_summaries_chemical$chemical == "methylbenzoate"])
+snifftotvol_Methyl_model$p.value <- p.adjust(snifftotvol_Methyl_model$p.value, 
+                                        method = "bonferroni", n = 5)
+print("Total volume: MB sport vs law-enforcement")
+print(snifftotvol_Methyl_model)
+
+
+#####################
+
+# Test sniff-vfr p4 panel: sniff volume flow rate summarized by chemical
+print("Test Volume flow rate Fig 3C: sniff volume flow rate summarized by chemical")
+shapiro.test(sniff_summaries_chemical$sniff_vfr) # data are non-normal
+
+# 2E1H (civilian vs operational) SIG
+sniffvfr_2E1H_model <- wilcox.test(
+  sniff_summaries_chemical$sniff_vfr[
+    sniff_summaries_chemical$size == "operational" & 
+    sniff_summaries_chemical$chemical == "2E1H"], 
+  sniff_summaries_chemical$sniff_vfr[
+    sniff_summaries_chemical$size != "operational" & 
+    sniff_summaries_chemical$chemical == "2E1H"]) 
+sniffvfr_2E1H_model$p.value <- p.adjust(sniffvfr_2E1H_model$p.value, 
+                                        method = "bonferroni", n = 5)
+print("Volume flow rate: 2E1H sport vs law-enforcement")
+print(sniffvfr_2E1H_model)
+
+# Ammonia (civilian vs operational) SIG
+sniffvfr_Ammonia_model <- wilcox.test(
+  sniff_summaries_chemical$sniff_vfr[
+    sniff_summaries_chemical$size == "operational" & 
+    sniff_summaries_chemical$chemical == "Ammonia"], 
+  sniff_summaries_chemical$sniff_vfr[
+    sniff_summaries_chemical$size != "operational" & 
+    sniff_summaries_chemical$chemical == "Ammonia"]) 
+sniffvfr_Ammonia_model$p.value <- p.adjust(sniffvfr_Ammonia_model$p.value, 
+                                        method = "bonferroni", n = 5)
+print("Volume flow rate: Ammonia sport vs law-enforcement")
+print(sniffvfr_Ammonia_model)
+
+# Blank (civilian vs operational) SIG
+sniffvfr_Blank_model <- wilcox.test(
+  sniff_summaries_chemical$sniff_vfr[
+    sniff_summaries_chemical$size == "operational" & 
+    sniff_summaries_chemical$chemical == "Blank"], 
+  sniff_summaries_chemical$sniff_vfr[
+    sniff_summaries_chemical$size != "operational" & 
+    sniff_summaries_chemical$chemical == "Blank"]) 
+sniffvfr_Blank_model$p.value <- p.adjust(sniffvfr_Blank_model$p.value, 
+                                        method = "bonferroni", n = 5)
+print("Volume flow rate: Blank sport vs law-enforcement")
+print(sniffvfr_Blank_model)
+
+# Bromooctane (civilian vs operational) SIG
+sniffvfr_Bromo_model <- wilcox.test(
+  sniff_summaries_chemical$sniff_vfr[
+    sniff_summaries_chemical$size == "operational" & 
+    sniff_summaries_chemical$chemical == "bromooctane"], 
+  sniff_summaries_chemical$sniff_vfr[
+    sniff_summaries_chemical$size != "operational" & 
+    sniff_summaries_chemical$chemical == "bromooctane"]) 
+sniffvfr_Bromo_model$p.value <- p.adjust(sniffvfr_Bromo_model$p.value, 
+                                        method = "bonferroni", n = 5)
+print("Volume flow rate: 1-BO sport vs law-enforcement")
+print(sniffvfr_Bromo_model)
+
+# Methyl benzoate (civilian vs operational) SIG
+sniffvfr_Methyl_model <- wilcox.test(
+  sniff_summaries_chemical$sniff_vfr[
+    sniff_summaries_chemical$size == "operational" & 
+    sniff_summaries_chemical$chemical == "methylbenzoate"], 
+  sniff_summaries_chemical$sniff_vfr[
+    sniff_summaries_chemical$size != "operational" & 
+    sniff_summaries_chemical$chemical == "methylbenzoate"]) 
+sniffvfr_Methyl_model$p.value <- p.adjust(sniffvfr_Methyl_model$p.value, 
+                                        method = "bonferroni", n = 5)
+print("Volume flow rate: MB sport vs law-enforcement")
+print(sniffvfr_Methyl_model)
+```
+
+## Figure 4
+
+```{r sniff-freq, fig.height=6.5, echo=FALSE, message=FALSE, warning=FALSE, fig.cap="A. Sniff frequencies of all canines, arranged from heaviest to lightest, left to right. B: Sniff frequencies of each trial organized by chemical. Small canines were designated as less than 30 pounds. Significance levels were designated * if p < 0.05, ** if p < 0.01, and *** if p < 0.001."}
+# Figure 6
+p1 <- ggplot(sniff_results, aes(x = chemical, y = sniff_freq, fill = trial)) + 
+  geom_point(pch = 21, alpha = 0.3, position = position_jitterdodge(jitter.width = 0.2)) + 
+  geom_boxplot(na.rm = T, outlier.shape = NA, alpha = 0.6) +
+  ylab("Sniff Frequency (sniff/s)")+
+  xlab(" ")+
+  ylim(0,10)+
+  scale_fill_manual(values = trial_cols, 
+                    labels = trial_labels, 
+                    name = " ")+
+  scale_x_discrete(labels = chem_labels) +
+  geom_segment(aes(x = .65, y = 8.5, xend = 1.15, yend = 8.5))+
+  annotate("text", x=.9, y=8.7, label= "*")+
+  geom_segment(aes(x = 1.65, y = 8.5, xend = 2.15, yend = 8.5))+
+  annotate("text", x=1.9, y=8.7, label= "**")+
+  #ggtitle("Sniff Frequency by chemical")+
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+p2 <- ggplot(sniff_results, aes(x = chemical, y = sniff_duration, fill = trial)) + 
+  geom_point(pch = 21, alpha = 0.3, position = position_jitterdodge(jitter.width = 0.2)) + 
+  geom_boxplot(na.rm = T, outlier.shape = NA, alpha = 0.6) +
+  ylab("Sniff Duratoin (s)")+
+  xlab(" ")+
+  #ylim(0,10)+
+  scale_fill_manual(values = trial_cols, 
+                    labels = trial_labels, 
+                    name = " ")+
+  scale_x_discrete(labels = chem_labels) +
+  #geom_segment(aes(x = .65, y = 8.5, xend = 1.15, yend = 8.5))+
+  #annotate("text", x=.9, y=8.7, label= "*")+
+  #geom_segment(aes(x = 1.65, y = 8.5, xend = 2.15, yend = 8.5))+
+  #annotate("text", x=1.9, y=8.7, label= "**")+
+  #ggtitle("Sniff Frequency by chemical")+
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+p1 / p2 + plot_annotation(tag_levels = "A") + plot_layout(guides = "collect") 
+```
+
+Accompanying statistical comparisons: 
+
+```{r sniff-vfr-stats}
+# 2E1H (Trial 1 vs Trial 3) SIG
+snifffreq_2E1H_model <- wilcox.test(
+  sniff_summaries_chemical$sniff_freq[
+    sniff_summaries_chemical$trial == 1 & 
+    sniff_summaries_chemical$chemical == "2E1H"], 
+  sniff_summaries_chemical$sniff_freq[
+    sniff_summaries_chemical$trial == 3 & 
+    sniff_summaries_chemical$chemical == "2E1H"]) 
+print("Sniff frequency: 2E1H (Trial 1 vs Trial 3)")
+print(snifffreq_2E1H_model)
+
+# Ammonia (Trial 1 vs Trial 3) SIG
+snifffreq_Amm_model <- wilcox.test(
+  sniff_summaries_chemical$sniff_freq[
+    sniff_summaries_chemical$trial == 1 & 
+    sniff_summaries_chemical$chemical == "Ammonia"], 
+  sniff_summaries_chemical$sniff_freq[
+    sniff_summaries_chemical$trial == 3 & 
+    sniff_summaries_chemical$chemical == "Ammonia"]) 
+print("Sniff frequency: Ammonia (Trial 1 vs Trial 3)")
+print(snifffreq_Amm_model)
+
+# Blank (Trial 1 vs Trial 3) NOT
+snifffreq_Blank_model <- wilcox.test(
+  sniff_summaries_chemical$sniff_freq[
+    sniff_summaries_chemical$trial == 1 & 
+    sniff_summaries_chemical$chemical == "Blank"], 
+  sniff_summaries_chemical$sniff_freq[
+    sniff_summaries_chemical$trial == 3 & 
+    sniff_summaries_chemical$chemical == "Blank"]) 
+print("Sniff frequency: Blank (Trial 1 vs Trial 3)")
+print(snifffreq_Blank_model)
+
+# Bromooctane (Trial 1 vs Trial 3) NOT
+snifffreq_Bromo_model <- wilcox.test(
+  sniff_summaries_chemical$sniff_freq[
+    sniff_summaries_chemical$trial == 1 & 
+    sniff_summaries_chemical$chemical == "bromooctane"], 
+  sniff_summaries_chemical$sniff_freq[
+    sniff_summaries_chemical$trial == 3 & 
+    sniff_summaries_chemical$chemical == "bromooctane"])
+print("Sniff frequency: 1-BO (Trial 1 vs Trial 3)")
+print(snifffreq_Bromo_model)
+
+# Methyl benzoate (Trial 1 vs Trial 3) NOT
+snifffreq_Methyl_model <- wilcox.test(
+  sniff_summaries_chemical$sniff_freq[
+    sniff_summaries_chemical$trial == 1 & 
+    sniff_summaries_chemical$chemical == "methylbenzoate"], 
+  sniff_summaries_chemical$sniff_freq[
+    sniff_summaries_chemical$trial == 3 & 
+    sniff_summaries_chemical$chemical == "methylbenzoate"]) 
+print("Sniff frequency: Methyl benzoate (Trial 1 vs Trial 3)")
+print(snifffreq_Methyl_model)
+```
+
+## Figure 5 
+
+Figure reproduction: 
+
+```{r volume-weight, fig.height=6.5, echo=FALSE, message=FALSE, warning=FALSE, fig.cap="A. Mean sniff volume versus body weight colored by trial and operational status.  B. Mean sniff volume normalized by body weight versus snout length for civilian dogs. C. Mean sniff volume flow rate versus body weight colored by trial and operational status. D. Mean sniff volume flor rate versus snout length for civilian dogs. Some individual participants labeled by number. On each plot, linear regressions are indicated by blue lines."}
+
+op_labels <- c("Sport", "Law enforcement")
+fig4_dat <- sniff_summaries_alltrials
+fig4_dat$labels <- fig4_dat$dog
+#fig4_dat$labels <- ""
+#id_labs <- c(1,2,3)
+#fig4_dat$labels[id_labs] <- fig4_dat$dog[id_labs]
+
+p1 <- ggplot(fig4_dat, 
+             aes(weight, sniff_volume, fill = op, group = 1)) +
+  geom_point(pch = 21, size = 2) +
+  stat_smooth(method = "lm", se = FALSE, linewidth = 0.8) +
+  geom_label_repel(aes(label = labels), fill = NA, max.overlaps = 2) +
+  scale_fill_manual(values = trial_cols[c(1,4)], 
+                    labels = op_labels, 
+                    name = " ", drop = F) + 
+  scale_color_manual(values = trial_cols[c(1,4)], 
+                    labels = op_labels, 
+                    name = " ", drop = F) + 
+  xlab("Body mass (kg)") + 
+  ylab("Mean sniff volume (mL)") +
+  theme_bw()
+
+p2 <- ggplot(na.omit(fig4_dat), aes(snout_length, norm_volume)) +
+  geom_point(pch = 21, size = 2, color = "black", fill = trial_cols[1]) +
+  stat_smooth(method = "lm", se = FALSE, linewidth = 0.8) +
+  geom_label_repel(aes(label = labels), fill = NA, max.overlaps = 3) +
+  #scale_fill_manual(values = trial_cols, 
+  #                  labels = trial_labels, 
+  #                  name = " ", drop = F) + 
+  #scale_color_manual(values = trial_cols, 
+  #                  labels = trial_labels, 
+  #                  name = " ", drop = F) +
+  xlab("Snout length (cm)") + 
+  ylab("Normalized sniff volume (mL/kg)") +
+  theme_bw()
+
+p3 <- ggplot(fig4_dat, 
+             aes(weight, sniff_vfr, fill = op, group = 1)) +
+  geom_point(pch = 21, size = 2) +
+  stat_smooth(method = "lm", se = FALSE, linewidth = 0.8) +
+  geom_label_repel(aes(label = labels), fill = NA, max.overlaps = 3) +
+  scale_fill_manual(values = trial_cols[c(1,4)], 
+                    labels = op_labels, 
+                    name = " ", drop = F) + 
+  scale_color_manual(values = trial_cols, 
+                    labels = op_labels, 
+                    name = " ", drop = F) + 
+  xlab("Body mass (kg)") + 
+  ylab("Mean sniff volume flow rate (mL/s)") +
+  theme_bw()
+
+p4 <- ggplot(na.omit(fig4_dat), aes(snout_length, sniff_vfr/weight)) +
+  geom_point(pch = 21, size = 2, color = "black", fill = trial_cols[1]) +
+  stat_smooth(method = "lm", se = FALSE, linewidth = 0.8) +
+  geom_label_repel(aes(label = labels), fill = NA, max.overlaps = 3) +
+  #scale_fill_manual(values = trial_cols, 
+  #                  labels = trial_labels, 
+  #                  name = " ", drop = F) + 
+  #scale_color_manual(values = trial_cols, 
+  #                  labels = trial_labels, 
+  #                  name = " ", drop = F) +
+  xlab("Snout length (cm)") + 
+  ylab("Normalized sniff volume\nflow rate (mL/s*kg)") +
+  theme_bw()
+
+(p1 + p2) / (p3 + p4 ) + plot_annotation(tag_levels = "A") + plot_layout(guides = "collect") & theme(legend.position = "bottom")
+```
+
+
+Accompanying statistical analyses: 
+
+```{r fig-5-stats}
+## Linear regressions accompaning panels on Fig. 5
+sport_reg_Fig5A <- summary(lm(sniff_volume~weight, 
+                              data = sniff_summaries_alltrials[sniff_summaries_alltrials$op == "civilian",]))
+print("Regression Fig 5A: sport only")
+print(sport_reg_Fig5A)
+
+all_reg_Fig5A <- summary(lm(sniff_volume~weight, 
+                              data = sniff_summaries_alltrials))
+print("Regression Fig 5A: all dogs")
+print(all_reg_Fig5A)
+
+sport_reg_Fig5B <- summary(lm(norm_volume~snout_length, data = sniff_summaries_alltrials))
+print("Regression Fig 5B")
+print(sport_reg_Fig5B)
+```
+# Reproduction of statistical values in text of manuscript
+
+
+```{r text-stats}
+
+## Comparing sniff volumes between operational and civilian dogs for all trials
+
+# Testing data for normality:
+# shapiro.test(sniff_summaries_alltrials$sniff_volume)
+# entire set is non-normal
+# shapiro.test(sniff_summaries_alltrials$sniff_volume[sniff_summaries_alltrials$op == "civilian"])
+# data are non-normal
+# shapiro.test(sniff_summaries_alltrials$sniff_volume[sniff_summaries_alltrials$op == "operational"])
+# data are normal
+
+# Performing non-parametric comparison:
+comp_op_volume_all <- wilcox.test(sniff_summaries_alltrials$sniff_volume[sniff_summaries_alltrials$op == 
+                                                                    "civilian"],
+                           sniff_summaries_alltrials$sniff_volume[sniff_summaries_alltrials$op ==
+                                                                    "operational"])
+print("Comparing sniff volumes between operational and civilian dogs for all trials")
+print(comp_op_volume_all)
+
+## Comparing sniff volume flow rates between operational and civilian dogs for all trials
+
+# Testing data for normality:
+# shapiro.test(sniff_summaries_alltrials$sniff_vfr)
+# entire set is non-normal
+# shapiro.test(sniff_summaries_alltrials$sniff_vfr[sniff_summaries_alltrials$op == "civilian"])
+# data are non-normal
+# shapiro.test(sniff_summaries_alltrials$sniff_vfr[sniff_summaries_alltrials$op == "operational"])
+# data are normal
+
+# Performing non-parametric comparison:
+comp_op_vfr_all <- wilcox.test(sniff_summaries_alltrials$sniff_vfr[sniff_summaries_alltrials$op == 
+                                                                    "civilian"],
+                           sniff_summaries_alltrials$sniff_vfr[sniff_summaries_alltrials$op ==
+                                                                    "operational"])
+print("Comparing sniff volume flow rates between operational and civilian dogs for all trials")
+print(comp_op_vfr_all)
+## Comparing sniffing frequencies between trials 1 and 3 for target chemicals only
+
+# Testing data for normality
+# shapiro.test(sniff_summaries_chemical$sniff_freq[sniff_summaries_chemical$trial == 1 & 
+#                                                   sniff_summaries_chemical$target == "yes"])
+# data are non-normal
+# shapiro.test(sniff_summaries_chemical$sniff_freq[sniff_summaries_chemical$trial == 3 & 
+#                                                   sniff_summaries_chemical$target == "yes"])
+# data are normal
+#shapiro.test(c(sniff_summaries_chemical$sniff_freq[sniff_summaries_chemical$trial == 1 & 
+#                                                   sniff_summaries_chemical$target == "yes"], 
+#            sniff_summaries_chemical$sniff_freq[sniff_summaries_chemical$trial == 3 & 
+#                                                   sniff_summaries_chemical$target == "yes"]))
+# entire data set is normal
+
+# Performing non-parametric comparison:
+comp_target_trial13 <- wilcox.test(sniff_summaries_chemical$sniff_freq[sniff_summaries_chemical$trial == 1 & 
+                                                   sniff_summaries_chemical$target == "yes"], 
+            sniff_summaries_chemical$sniff_freq[sniff_summaries_chemical$trial == 3 & 
+                                                   sniff_summaries_chemical$target == "yes"])
+print(comp_target_trial13)
+# Similar result if t-test is used:
+#t.test(sniff_summaries_chemical$sniff_freq[sniff_summaries_chemical$trial == 1 & 
+#                                                   sniff_summaries_chemical$target == "yes"], 
+#            sniff_summaries_chemical$sniff_freq[sniff_summaries_chemical$trial == 3 & 
+#                                                   sniff_summaries_chemical$target == "yes"])
+```

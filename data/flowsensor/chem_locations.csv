@@ -1,0 +1,14 @@
+Which chemical was in which hole
+trial,run,methylbenzoate,bromooctane,Blank,"2E1H","Ammonia"
+1,1,hole_1,hole_2,hole_3,hole_4,NA
+1,2,hole_1,hole_2,hole_3,NA,hole_4
+2,1,hole_4,hole_3,hole_2,hole_1,NA
+2,2,hole_4,hole_3,hole_2,NA,hole_1
+3,1,hole_2,hole_1,hole_3,hole_4,NA
+3,2,hole_3,hole_4,hole_2,NA,hole_1
+4,1,hole_1,hole_2,hole_3,hole_4,NA
+4,2,hole_1,hole_3,hole_3,NA,hole_4
+5,1.0,hole_4,hole_3,hole_2,hole_1,NA
+5,1.5,hole_4,hole_3,hole_2,NA,hole_1
+5,2.0,hole_1,hole_3,hole_2,NA,hole_4
+5,2.5,hole_1,hole_3,hole_2,hole_4,NA

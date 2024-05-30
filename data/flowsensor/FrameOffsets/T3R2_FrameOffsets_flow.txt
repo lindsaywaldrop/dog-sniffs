@@ -1,0 +1,16 @@
+Frame Offsets for side view on Flow sensors Trial 3 Run 2 
+wall_size,trial_code,hole_1,hole_2,hole_3,hole_4
+large,T3D1R2,820,780,738,695
+large,T3D2R2,818,778,737,692
+large,T3D9R2,689,655,614,816
+large,T3D11R2,302,255,210,163
+large,T3D12R2,336,290,242,188
+large,T3D14R2,299,263,218,177
+large,T3D15R2,311,473,231,188
+large,T3D17R2,247,204,161,117
+large,T3D19R2,420,378,331,287
+large,T3D20R2,247,207,164,118
+large,T3D21R2,257,213,169,127
+small,T3D22R2,394,348,306,257
+small,T3D23R2,206,420,101,47
+small,T3D24R2,353,302,242,188
